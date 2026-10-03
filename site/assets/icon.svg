@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect x="1" y="1" width="62" height="62" rx="16" fill="#111110" stroke="#34312c" stroke-width="2"/>
-  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M44 16a20 20 0 0 0-23-1M15 21a20 20 0 0 0 0 22M21 49a20 20 0 0 0 23-1" stroke="#ff841f" stroke-width="4.5"/>
-    <path d="M26 22v14a7 7 0 0 0 14 0v-4h13m-5-5 5 5-5 5" stroke="#f5f3ee" stroke-width="4.5"/>
-  </g>
+  <!-- Next: the story "tap forward" chevron breaking out of a portrait frame. -->
+  <rect width="64" height="64" rx="14" fill="#080808"/>
+  <rect x="12" y="9" width="28" height="46" rx="7" fill="#f5f3ee"/>
+  <path d="M29 19l13 13-13 13" fill="none" stroke="#080808" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M29 19l13 13-13 13" fill="none" stroke="#ff841f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
