@@ -7,7 +7,7 @@ name = "instastoryhook"
 version = "0.1.0"
 description = "Self-hosted Instagram story polling with durable JSON webhook delivery"
 requires-python = ">=3.11"
-dependencies = ["instagrapi==3.0.18", "httpx==0.28.1"]
+dependencies = ["instagrapi==3.0.18", "httpx==0.28.1", "pydantic>=2,<3"]
 
 [project.optional-dependencies]
 chrome = ["browser-cookie3==0.20.1"]
