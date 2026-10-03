@@ -138,7 +138,9 @@ The worker checks its outbox between polls, including during Instagram backoff.
 `--once` makes one poll cycle and bounded delivery passes, then exits. It honors
 the saved next-poll time; an immediate repeat reports `cooldown`. `deliver` needs
 no Instagram session, so it can drain captured data after auth expires. Repeat
-it for larger queues or pending retries.
+it for larger queues or pending retries. `deliver` exits `1` while pending or
+dead rows remain, and `0` when the queue is fully delivered. Each delivery pass
+starts at most 50 requests and stops starting new requests after 30 seconds.
 
 Exit codes: `0` successful cycle/clean stop, `1` degraded cycle or cooldown, `2`
 configuration/auth failure. `status` prints queue counts and last poll health.

@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import threading
 
 import httpx
 import pytest
@@ -115,6 +116,39 @@ def test_sink_change_cannot_leak_old_events(store):
     store.bind_webhook("https://first.example")
     with pytest.raises(ValueError):
         store.bind_webhook("https://second.example")
+
+
+def test_shutdown_does_not_begin_more_deliveries(store, event):
+    store.add(event, 1)
+    stop = threading.Event()
+    stop.set()
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
+    )
+    assert hook.drain(store, 2, stop=stop) == 0
+    assert len(store.due(2)) == 1
+    hook.close()
+
+
+def test_redirect_does_not_receive_secret(store, event):
+    store.add(event, 1)
+    calls = []
+
+    def receive(request):
+        calls.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://other.example"})
+
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(receive)),
+    )
+    assert hook.drain(store, 2) == 0
+    assert calls == ["https://receiver.example"]
+    assert store.due(100)[0]["last_error"] == "HTTP 302"
+    hook.close()
 
 
 def test_exclusive_worker(tmp_path):

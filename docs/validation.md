@@ -31,16 +31,38 @@ timestamps and idempotency keys.
 
 ## Automated checks
 
-33 tests passed initially. Coverage includes strict response validation, exact
+38 tests passed in the final local run. Coverage includes strict response validation, exact
 URL preservation, legacy links, media selection, public-account filtering,
 restart deduplication, signed delivery, backoff and dead-letter replay, a crash
 after receiver acceptance, webhook destination binding, worker locking,
 credential-free media requests, partial story failures, session permissions,
-atomic session replacement, and persisted source cooldown.
+atomic session replacement, persisted source cooldown, redirect refusal, shutdown
+during delivery, and status/export access while the worker lock is held.
 
 Ruff lint and formatting checks passed, and `pip check` found no dependency
-conflicts. Compose configuration validated. Container build results and final
-test count are recorded below after checking.
+conflicts. Compose configuration validated. Docker build/runtime could not be
+verified locally: Docker Desktop reported running, but the daemon socket was
+unreachable and Desktop UI inspection timed out. CI includes a Linux container
+build and CLI smoke test, but this workflow has not been run remotely.
+
+An export of all 36 live events returned cursors 1 through 36. Exporting with
+`--after 36` returned no records.
+
+## Local artifacts
+
+All captured data and credentials are gitignored under `data/`:
+
+- `data/session.json`: saved session for subsequent CLI runs.
+- `data/stories.sqlite3`: the 36 captured events, pending delivery to the user's
+  eventual receiver. No test webhook destination is bound to this database.
+- `data/media/`: downloaded files.
+- `data/validation/stories.sqlite3`: original completed test delivery state.
+- `data/validation/live-events.jsonl`: emitted event bodies.
+- `data/validation/live-test-summary.json`: counts and signature results.
+
+After testing, captured events and account caches were copied into the unbound
+working database. This preserves deduplication and lets the first configured
+real receiver get all 36 events. No test secret or test receiver is needed.
 
 ## Limits of validation
 

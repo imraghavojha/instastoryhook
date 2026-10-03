@@ -131,7 +131,8 @@ def main(argv=None):
                     raise ValueError("deliver requires --webhook or STORYHOOK_WEBHOOK_URL")
                 count = webhook.drain(store)
                 print(json.dumps({"delivered": count, **store.status()}))
-                return 1 if store.status()["events"].get("dead", 0) else 0
+                counts = store.status()["events"]
+                return 1 if counts.get("dead", 0) or counts.get("pending", 0) else 0
             if args.interval < 60:
                 raise ValueError("interval must be at least 60 seconds")
             if not session.exists():
