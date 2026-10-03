@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from .delivery import Webhook
-from .source import Instagram, call, make_client, save_session
+from .source import Instagram, call, make_client, save_session, username
 from .store import Store, exclusive
 from .worker import report, run
 
@@ -97,6 +97,10 @@ def main(argv=None):
     data = args.data_dir.resolve()
     session = data / "session.json"
     try:
+        if args.command == "run":
+            args.accounts = list(dict.fromkeys(username(name) for name in args.accounts))
+        if args.command in ("status", "export") and not (data / "stories.sqlite3").is_file():
+            raise ValueError("No story database in this data directory; run the collector first")
         with ExitStack() as stack:
             if args.command not in ("status", "export"):
                 stack.enter_context(exclusive(data / "worker.lock"))
@@ -112,8 +116,9 @@ def main(argv=None):
                     print(json.dumps(row, ensure_ascii=False), flush=True)
                 return 0
             if args.command == "replay":
-                print(json.dumps({"requeued": store.replay(args.id)}))
-                return 0
+                count = store.replay(args.id)
+                print(json.dumps({"requeued": count}))
+                return 1 if args.id and not count else 0
             if args.max_attempts < 1:
                 raise ValueError("max-attempts must be positive")
             webhook = None

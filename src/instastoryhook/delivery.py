@@ -30,10 +30,17 @@ class Webhook:
         self.client = client or httpx.Client(timeout=15, follow_redirects=False)
 
     def drain(self, store, now=None, stop=None):
+        fixed_time = now is not None
         now = time.time() if now is None else now
         deadline = time.monotonic() + 30
         sent = 0
-        for row in store.due(now):
+
+        # Hold the due cutoff fixed so each failed row is attempted only once per pass.
+        def rows():
+            while batch := store.due(now):
+                yield from batch
+
+        for row in rows():
             if time.monotonic() >= deadline or (stop and stop.is_set()):
                 break
             body = row["payload"].encode()
@@ -61,22 +68,27 @@ class Webhook:
                         continue
                     error = f"HTTP {response.status_code}"
                     value = response.headers.get("retry-after", "")
-                    if value.isdigit():
-                        retry_after = int(value)
+                    if value.isascii() and value.isdigit():
+                        retry_after = min(86400, int(value)) if len(value) < 6 else 86400
             except httpx.HTTPError as exc:
                 error = type(exc).__name__
-            store.failed(row, now, error, self.max_attempts, retry_after)
+            store.failed(
+                row, now if fixed_time else time.time(), error, self.max_attempts, retry_after
+            )
         return sent
 
     def close(self):
         self.client.close()
 
 
-def archive(event, folder: Path, client=None):
+def archive(event, folder: Path, client=None, stop=None):
     media = event["story"]["media"]
     own_client = client is None
     temporary = None
+    deadline = time.monotonic() + 120
     try:
+        if stop and stop.is_set():
+            raise ValueError("Download interrupted")
         url = media.get("url")
         parsed = urlsplit(url or "")
         host = parsed.hostname or ""
@@ -95,6 +107,8 @@ def archive(event, folder: Path, client=None):
             response.raise_for_status()
             with temporary.open("wb") as f:
                 for chunk in response.iter_bytes():
+                    if time.monotonic() >= deadline or (stop and stop.is_set()):
+                        raise ValueError("Download interrupted or exceeded 120 seconds")
                     size += len(chunk)
                     if size > 100 * 1024 * 1024:
                         raise ValueError("Media exceeds 100 MiB")

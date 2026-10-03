@@ -75,3 +75,25 @@ def test_malformed_story_fails_explicitly(item):
     del item["taken_at"]
     with pytest.raises(SchemaError):
         normalize(item, {"id": "42", "username": "creator"}, 1700000001)
+
+
+def test_bad_optional_fields_preserve_valid_links_and_media(item):
+    item["story_link_stickers"].extend([None, "bad", {"story_link": "bad"}])
+    item["story_cta"] = [None, {"links": [False, {"webUri": "https://other.example"}]}]
+    item["image_versions2"]["candidates"].extend(
+        [None, {"url": "https://bad.example", "width": "bad", "height": []}]
+    )
+    event = normalize(item, {"id": "42", "username": "creator"}, 1700000001)
+    assert [link["url"] for link in event["story"]["links"]] == [
+        "https://jobs.example",
+        "https://other.example",
+    ]
+    assert event["story"]["media"]["url"] == "https://s.cdninstagram.com/image.jpg"
+    assert event["story"]["raw"] == item
+
+
+@pytest.mark.parametrize("story_id", ["١٢٣", "../file", "0.5"])
+def test_invalid_story_id_is_rejected(item, story_id):
+    item["pk"] = story_id
+    with pytest.raises(SchemaError):
+        normalize(item, {"id": "42", "username": "creator"}, 1700000001)

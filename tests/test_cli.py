@@ -23,3 +23,21 @@ def test_invalid_interval_does_not_contact_instagram(tmp_path, capsys):
 def test_missing_session_is_actionable(tmp_path, capsys):
     assert main(["--data-dir", str(tmp_path), "run", "creator", "--once"]) == 2
     assert "login first" in capsys.readouterr().err
+
+
+def test_bad_username_fails_before_creating_state(tmp_path, capsys):
+    assert main(["--data-dir", str(tmp_path), "run", "https://instagram.com/creator"]) == 2
+    assert "username, not a URL" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
+
+
+def test_inspection_of_missing_data_does_not_create_empty_database(tmp_path, capsys):
+    for command in ["status", "export"]:
+        assert main(["--data-dir", str(tmp_path), command]) == 2
+        assert "No story database" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
+
+
+def test_replay_unknown_id_reports_no_match(tmp_path, capsys):
+    assert main(["--data-dir", str(tmp_path), "replay", "--id", "missing"]) == 1
+    assert json.loads(capsys.readouterr().out) == {"requeued": 0}

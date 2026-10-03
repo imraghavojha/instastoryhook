@@ -12,8 +12,9 @@ def report(kind, **fields):
     print(json.dumps({"type": kind, **fields}), file=sys.stderr, flush=True)
 
 
-def collect(source, store, usernames, media_dir=None, emit=True, stop=None):
+def collect(source, store, usernames, media_dir=None, emit=True, stop=None, account_health=None):
     added, errors = 0, 0
+    account_health = {} if account_health is None else account_health
     accounts = list(dict.fromkeys(name.removeprefix("@").lower() for name in usernames))
     random.shuffle(accounts)
     for username in accounts:
@@ -26,7 +27,7 @@ def collect(source, store, usernames, media_dir=None, emit=True, stop=None):
                 account = source.resolve(username)
                 store.save_account(username, account, now)
             items = source.stories(account)
-            fresh = 0
+            fresh, story_errors = 0, 0
             for item in items:
                 if stop and stop.is_set():
                     break
@@ -35,18 +36,27 @@ def collect(source, store, usernames, media_dir=None, emit=True, stop=None):
                 except SchemaError as exc:
                     report("story_error", username=username, error=str(exc))
                     errors += 1
+                    story_errors += 1
                     continue
                 if store.contains(event["id"]):
                     continue
                 if media_dir:
-                    archive(event, media_dir)
+                    archive(event, media_dir, stop=stop)
                 if store.add(event, now):
                     fresh += 1
                     if emit:
                         print(json.dumps(event, ensure_ascii=False), flush=True)
             added += fresh
+            account_health[username] = {
+                "status": "degraded" if story_errors else "ok",
+                "at": utc(now),
+                "stories": len(items),
+                "new": fresh,
+                "story_errors": story_errors,
+            }
             report("account_polled", username=username, stories=len(items), new=fresh)
-        except InvalidAccount as exc:
+        except (InvalidAccount, SchemaError) as exc:
+            account_health[username] = {"status": "error", "at": utc(now), "error": str(exc)}
             report("account_error", username=username, error=str(exc))
             errors += 1
         # Rate/auth/transport failures stop this cycle, avoiding a request storm.
@@ -66,8 +76,11 @@ def run(
             if sent:
                 report("webhooks_delivered", count=sent)
         if now >= next_poll:
+            account_health = {}
             try:
-                added, errors = collect(source, store, usernames, media_dir, emit, stop)
+                added, errors = collect(
+                    source, store, usernames, media_dir, emit, stop, account_health
+                )
                 failures = 0
                 next_poll = time.time() + interval * random.uniform(1, 1.2)
                 health = {
@@ -91,12 +104,15 @@ def run(
                     "last_attempt": utc(now),
                 }
                 exit_code = 1
-            health.update(next_poll=next_poll, failures=failures)
+            health.update(next_poll=next_poll, failures=failures, accounts=account_health)
             store.health(health)
             report("health", **health)
             if webhook:
                 webhook.drain(store, stop=stop)
             if once:
+                counts = store.status()["events"]
+                if webhook and (counts.get("pending") or counts.get("dead")):
+                    return 1
                 return exit_code
         elif once:
             report("cooldown", next_poll=utc(next_poll))

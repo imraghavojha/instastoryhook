@@ -196,3 +196,109 @@ def test_malformed_or_untrusted_media_does_not_discard_event(tmp_path, event, ur
     assert event["story"]["media"]["download_error"]
     assert event["story"]["links"]
     assert not list(tmp_path.glob("*.part"))
+
+
+@pytest.mark.parametrize("status", [204, 503])
+def test_large_queue_delivers_or_retries_each_row_once(store, event, status):
+    for number in range(120):
+        store.add({**event, "id": f"instagram:42:{number}"}, 1)
+    ids = []
+
+    def receive(request):
+        ids.append(request.headers["Idempotency-Key"])
+        return httpx.Response(status)
+
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(receive)),
+    )
+    try:
+        assert hook.drain(store, now=2) == (120 if status == 204 else 0)
+        assert len(ids) == len(set(ids)) == 120
+        assert store.status()["events"] == {("delivered" if status == 204 else "pending"): 120}
+        assert not store.due(2)
+    finally:
+        hook.close()
+
+
+def test_delivery_deadline_stops_starting_new_requests(store, event, monkeypatch):
+    for number in range(3):
+        store.add({**event, "id": str(number)}, 1)
+    ticks = iter([0, 0, 31])
+    monkeypatch.setattr("instastoryhook.delivery.time.monotonic", lambda: next(ticks))
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(204))),
+    )
+    try:
+        assert hook.drain(store, now=2) == 1
+        assert store.status()["events"] == {"delivered": 1, "pending": 2}
+    finally:
+        hook.close()
+
+
+def test_retry_delay_starts_after_slow_failed_request(store, event, monkeypatch):
+    clock = [100]
+    monkeypatch.setattr("instastoryhook.delivery.time.time", lambda: clock[0])
+    store.add(event, 1)
+
+    def receive(request):
+        clock[0] += 20
+        return httpx.Response(503)
+
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(receive)),
+    )
+    try:
+        hook.drain(store)
+        assert not store.due(129)
+        assert len(store.due(130)) == 1
+    finally:
+        hook.close()
+
+
+def test_oversized_retry_after_is_capped(store, event):
+    store.add(event, 1)
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(503, headers={"Retry-After": "9" * 5000})
+            )
+        ),
+    )
+    try:
+        assert hook.drain(store, now=2) == 0
+        assert not store.due(86401)
+        assert len(store.due(86402)) == 1
+    finally:
+        hook.close()
+
+
+@pytest.mark.parametrize("cancel", [True, False])
+def test_media_deadline_and_shutdown_remove_partial_file(tmp_path, event, monkeypatch, cancel):
+    stop = threading.Event()
+    clock = [0]
+    monkeypatch.setattr("instastoryhook.delivery.time.monotonic", lambda: clock[0])
+
+    class SlowStream(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"first chunk"
+            if cancel:
+                stop.set()
+            else:
+                clock[0] = 121
+            yield b"second chunk"
+
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, stream=SlowStream()))
+    ) as client:
+        archive(event, tmp_path, client, stop=stop)
+    assert event["story"]["media"]["download_error"] == "ValueError"
+    assert not list(tmp_path.glob("*.part"))
+    assert not list(tmp_path.glob("*.jpg"))

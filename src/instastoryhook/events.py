@@ -12,12 +12,14 @@ def utc(timestamp):
 
 def links(item):
     result = []
-    for sticker in item.get("story_link_stickers") or []:
-        link = sticker.get("story_link") or {}
+    for sticker in objects(item.get("story_link_stickers")):
+        link = sticker.get("story_link")
+        if not isinstance(link, dict):
+            continue
         if isinstance(link.get("url"), str):
             result.append({"source": "sticker", **link})
-    for cta in item.get("story_cta") or []:
-        for link in cta.get("links") or []:
+    for cta in objects(item.get("story_cta")):
+        for link in objects(cta.get("links")):
             if isinstance(link.get("webUri"), str):
                 result.append({**link, "source": "cta", "url": link["webUri"]})
     for link in result:
@@ -32,20 +34,31 @@ def links(item):
     return result
 
 
+def objects(value):
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
+
+
 def best(versions):
-    valid = [v for v in versions or [] if isinstance(v.get("url"), str)]
-    return max(valid, key=lambda v: (v.get("width") or 0) * (v.get("height") or 0), default={})
+    def area(version):
+        try:
+            return max(0, int(version.get("width") or 0)) * max(0, int(version.get("height") or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    valid = [v for v in objects(versions) if isinstance(v.get("url"), str)]
+    return max(valid, key=area, default={})
 
 
 def normalize(item, account, now):
     try:
         story_id = str(item.get("pk") or item["id"].split("_")[0])
-        if not story_id.isdigit():
+        if not story_id.isascii() or not story_id.isdigit():
             raise ValueError("non-numeric story id")
         posted = float(item["taken_at"])
         expires = float(item.get("expiring_at") or posted + 86400)
         media_type = int(item["media_type"])
-        preview = best((item.get("image_versions2") or {}).get("candidates"))
+        images = item.get("image_versions2")
+        preview = best(images.get("candidates")) if isinstance(images, dict) else {}
         media = best(item.get("video_versions")) if media_type == 2 else preview
         caption = item.get("caption") or {}
         return {
@@ -71,5 +84,5 @@ def normalize(item, account, now):
                 "raw": item,
             },
         }
-    except (KeyError, TypeError, ValueError, AttributeError, OverflowError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError, OSError) as exc:
         raise SchemaError("Story fields changed or a required field is missing") from exc

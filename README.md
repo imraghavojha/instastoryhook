@@ -126,7 +126,7 @@ instastoryhook status
 instastoryhook export --after 0 > captured.jsonl
 instastoryhook replay                         # requeue dead deliveries
 instastoryhook replay --id 'instagram:123:456' # requeue a specific event
-instastoryhook deliver                        # attempt up to 50 due deliveries
+instastoryhook deliver                        # drain due deliveries for up to 30 seconds
 ```
 
 Exports contain `{"cursor": 1, "event": {...}}`. Save the cursor after downstream
@@ -135,26 +135,41 @@ SQLite lets you recover missed stdout. In export-only mode events remain pending
 until a webhook delivers them.
 
 The worker checks its outbox between polls, including during Instagram backoff.
-`--once` makes one poll cycle and bounded delivery passes, then exits. It honors
+`--once` makes one poll cycle and bounded delivery passes, then exits. With a
+webhook configured, it exits `1` if pending or dead deliveries remain, even when
+collection succeeded. It honors
 the saved next-poll time; an immediate repeat reports `cooldown`. `deliver` needs
 no Instagram session, so it can drain captured data after auth expires. Repeat
 it for larger queues or pending retries. `deliver` exits `1` while pending or
 dead rows remain, and `0` when the queue is fully delivered. Each delivery pass
-starts at most 50 requests and stops starting new requests after 30 seconds.
+reads batches of 50 rows and stops starting new requests after 30 seconds. A
+failed event is attempted only once per pass. Retry delays start after the failed
+request finishes. A request already in progress can finish after the deadline.
 
-Exit codes: `0` successful cycle/clean stop, `1` degraded cycle or cooldown, `2`
+Exit codes: `0` successful cycle/clean stop, `1` degraded cycle, incomplete delivery or cooldown, `2`
 configuration/auth failure. `status` prints queue counts and last poll health.
-Check timestamps too, to detect a stopped worker. Auth failures exit. Other source
-errors pause the cycle and back off, persisting cooldown across restarts. Public
+Check timestamps too, to detect a stopped worker. `status` is JSON inspection,
+not an exit-code health check. Per-account results show which accounts failed.
+`status` and `export` reject missing databases; they never create an empty one.
+Auth failures exit. Transport errors and rate limits pause the cycle and back
+off, persisting cooldown across restarts. A malformed or unavailable account is
+reported separately so other accounts can still be collected. Malformed story
+items are skipped individually; valid siblings survive. Public
 profile IDs are cached for 24 hours; private accounts are rejected on resolution
-and whenever the reel says private.
+and whenever the reel says private. Changing the account list does not bypass a
+saved cooldown. Instagram private requests use a 10-second connection timeout
+and a 30-second read timeout, or a 40-second total timeout with its default curl
+transport. Upstream HTTP 408 handling can still sleep and retry once.
 
 `--download-media` saves the best available image/video under `data/media/` and
 adds `local_path` and `bytes` to the event. Files are local to the worker; remote
 receivers need a shared volume or should fetch source URLs promptly. Downloads
 are limited to 100 MiB and are best-effort: failures add `download_error` without
 dropping links. Failed media downloads are not retried automatically. Downloads
-precede event persistence, so slow downloads increase latency.
+check shutdown and a 120-second deadline between chunks; a blocked read can add
+up to its 30-second timeout. They precede event persistence, so slow downloads
+increase latency. Bad optional stickers and media candidates are skipped while
+the original item remains available in `raw`.
 
 Persist the entire `data/` directory. Nothing is pruned automatically. Keep its
 session, database, and backups private. One writer runs per data directory;

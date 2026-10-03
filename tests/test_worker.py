@@ -73,3 +73,32 @@ def test_session_failure_preserves_existing_file(tmp_path):
     with pytest.raises(ValueError):
         save_session(Client(), path)
     assert path.read_text() == "original"
+
+
+@pytest.mark.parametrize("status,exit_code", [(204, 0), (503, 1)])
+def test_once_reports_incomplete_webhook_delivery(store, item, status, exit_code):
+    import httpx
+
+    from instastoryhook.delivery import Webhook
+
+    hook = Webhook(
+        "https://receiver.example",
+        "secret",
+        client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(status))),
+    )
+    try:
+        assert (
+            run(
+                Source([item]),
+                store,
+                ["creator"],
+                60,
+                threading.Event(),
+                webhook=hook,
+                once=True,
+                emit=False,
+            )
+            == exit_code
+        )
+    finally:
+        hook.close()

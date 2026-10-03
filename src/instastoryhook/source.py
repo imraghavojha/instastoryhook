@@ -9,6 +9,7 @@ from pathlib import Path
 
 from instagrapi import Client
 from instagrapi import exceptions as ig_errors
+from pydantic import ValidationError
 
 
 class SourceError(Exception):
@@ -57,6 +58,16 @@ def make_client(proxy=None):
     logger.propagate = False
     client = Client(proxy=proxy, logger=logger, session_retry_total=0)
     client.handle_exception = raise_challenge
+    original_request = client.private.request
+
+    def request(method, url, **kwargs):
+        # Upstream private GET/POST calls omit timeouts. The session survives
+        # settings reloads, unlike its adapters. Cover login and polling here.
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = (10, 30)
+        return original_request(method, url, **kwargs)
+
+    client.private.request = request
     return client
 
 
@@ -79,6 +90,10 @@ def call(operation, *args, **kwargs):
         raise RateLimited("Instagram throttled requests; polling will back off") from exc
     except (ig_errors.UserNotFound, ig_errors.ClientNotFoundError) as exc:
         raise InvalidAccount("Instagram account was not found or is unavailable") from exc
+    except ValidationError as exc:
+        raise SchemaError(
+            "Instagram profile fields changed or a required field is missing"
+        ) from exc
     except Exception as exc:
         # Upstream exception messages may contain request/session details.
         raise SourceError(f"Instagram request failed ({type(exc).__name__})") from exc
@@ -115,6 +130,13 @@ def story_items(response):
     return reel["items"]
 
 
+def username(value):
+    value = value.removeprefix("@").lower()
+    if not re.fullmatch(r"[a-z0-9_.]{1,30}", value):
+        raise InvalidAccount("Use an Instagram username, not a URL")
+    return value
+
+
 class Instagram:
     def __init__(self, session: Path, proxy=None):
         self.session = session
@@ -123,13 +145,11 @@ class Instagram:
         if not self.client.user_id:
             raise AuthRequired("Session has no authenticated user; run login first")
 
-    def resolve(self, username):
-        username = username.removeprefix("@").lower()
-        if not re.fullmatch(r"[a-z0-9_.]{1,30}", username):
-            raise InvalidAccount("Use an Instagram username, not a URL")
-        user = call(self.client.user_info_by_username_v1, username)
+    def resolve(self, name):
+        name = username(name)
+        user = call(self.client.user_info_by_username_v1, name)
         if user.is_private:
-            raise InvalidAccount(f"@{username} is private; only public accounts are supported")
+            raise InvalidAccount(f"@{name} is private; only public accounts are supported")
         return {"id": str(user.pk), "username": user.username}
 
     def stories(self, account):

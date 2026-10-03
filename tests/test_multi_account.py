@@ -113,12 +113,16 @@ def test_session_failure_keeps_prior_account_and_stops_later_accounts(
     assert store.status()["events"] == {"pending": 1}
 
 
-def test_malformed_reel_user_backs_off_without_hiding_as_empty(store, tmp_path, item):
+def test_malformed_account_does_not_block_valid_account(store, tmp_path, item):
     source = source_for(tmp_path, item)
     source.client.reels["11"]["user"] = "unexpected"
-    assert run(source, store, ["first"], 60, threading.Event(), once=True, emit=False) == 1
-    assert store.status()["health"]["status"] == "error"
-    assert store.status()["events"] == {}
+    assert (
+        run(source, store, ["first", "second"], 60, threading.Event(), once=True, emit=False) == 1
+    )
+    assert store.status()["health"]["status"] == "degraded"
+    assert store.status()["health"]["accounts"]["first"]["status"] == "error"
+    assert store.status()["health"]["accounts"]["second"]["status"] == "ok"
+    assert store.status()["events"] == {"pending": 1}
 
 
 def test_media_directory_failure_still_persists_links(store, tmp_path, item):
