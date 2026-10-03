@@ -41,7 +41,7 @@ def test_video_chooses_highest_resolution(item):
         {"status": "fail", "reel": None},
         {"status": "ok", "reel": {}},
         {"status": "ok", "reel": {"items": None}},
-        {"status": "ok", "reel": {"items": [None]}},
+        {"status": "ok", "reel": {"items": [], "user": "malformed"}},
         [],
     ],
 )

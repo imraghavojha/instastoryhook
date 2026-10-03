@@ -106,10 +106,12 @@ def story_items(response):
         return []
     if not isinstance(reel, dict) or not isinstance(reel.get("items"), list):
         raise SchemaError("Instagram story reel lacks an items array")
-    if (reel.get("user") or {}).get("is_private"):
+    user = reel.get("user")
+    if user is not None and not isinstance(user, dict):
+        raise SchemaError("Instagram story reel has a malformed user")
+    if (user or {}).get("is_private"):
         raise InvalidAccount("Only public accounts are supported")
-    if any(not isinstance(item, dict) for item in reel["items"]):
-        raise SchemaError("Instagram returned a malformed story item")
+    # Validate each item in normalize so a bad sibling cannot drop valid stories.
     return reel["items"]
 
 

@@ -74,26 +74,22 @@ class Webhook:
 
 def archive(event, folder: Path, client=None):
     media = event["story"]["media"]
-    url = media.get("url")
-    parsed = urlsplit(url or "")
-    host = parsed.hostname or ""
-    if parsed.scheme != "https" or not any(
-        host.endswith("." + d)
-        for d in (
-            "cdninstagram.com",
-            "fbcdn.net",
-            "instagram.com",
-        )
-    ):
-        media["download_error"] = "missing_or_unrecognized_media_url"
-        return
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    suffix = ".mp4" if media["type"] == "video" else ".jpg"
-    path = folder / (event["story"]["id"] + suffix)
-    temporary = path.with_suffix(suffix + ".part")
     own_client = client is None
-    client = client or httpx.Client(timeout=30, follow_redirects=False)
+    temporary = None
     try:
+        url = media.get("url")
+        parsed = urlsplit(url or "")
+        host = parsed.hostname or ""
+        if parsed.scheme != "https" or not any(
+            host.endswith("." + d) for d in ("cdninstagram.com", "fbcdn.net", "instagram.com")
+        ):
+            media["download_error"] = "missing_or_unrecognized_media_url"
+            return
+        folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+        suffix = ".mp4" if media["type"] == "video" else ".jpg"
+        path = folder / (event["story"]["id"] + suffix)
+        temporary = path.with_suffix(suffix + ".part")
+        client = client or httpx.Client(timeout=30, follow_redirects=False)
         size = 0
         with client.stream("GET", url) as response:
             response.raise_for_status()
@@ -111,6 +107,10 @@ def archive(event, folder: Path, client=None):
     except (httpx.HTTPError, OSError, ValueError) as exc:
         media["download_error"] = type(exc).__name__
     finally:
-        temporary.unlink(missing_ok=True)
-        if own_client:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass  # Cleanup failure must not prevent persisting the story.
+        if own_client and client is not None:
             client.close()

@@ -181,3 +181,18 @@ def test_media_failure_preserves_link_event(tmp_path, event):
     assert "download_error" in event["story"]["media"]
     assert event["story"]["links"]
     assert not list(tmp_path.glob("*.part"))
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://[invalid", "http://127.0.0.1/private", "https://cdninstagram.com.attacker.example/a"],
+)
+def test_malformed_or_untrusted_media_does_not_discard_event(tmp_path, event, url):
+    event["story"]["media"]["url"] = url
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda r: pytest.fail("must not fetch"))
+    ) as client:
+        archive(event, tmp_path, client)
+    assert event["story"]["media"]["download_error"]
+    assert event["story"]["links"]
+    assert not list(tmp_path.glob("*.part"))
