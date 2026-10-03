@@ -17,7 +17,6 @@ a:focus-visible { outline: 2px solid #ff841f; outline-offset: 6px; }
 .header-inner, .hero, .site-footer { width: min(1200px, calc(100% - 96px)); margin-inline: auto; }
 .header-inner { min-height: 84px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; letter-spacing: -.4px; }
-.brand img { filter: grayscale(1); }
 nav { display: flex; gap: 32px; font-size: 14px; color: #bbb9b4; }
 nav a { padding-block: 12px; }
 nav a:hover, .site-footer a:hover { color: #fff; }

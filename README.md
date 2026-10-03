@@ -1,4 +1,4 @@
-<img src="assets/icon.svg" width="48" height="48" alt="">
+<img src="assets/icon.svg" width="48" height="48" alt="instaStoryHook logo">
 
 # instaStoryHook
 
