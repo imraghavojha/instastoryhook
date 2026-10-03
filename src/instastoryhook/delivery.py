@@ -29,10 +29,13 @@ class Webhook:
         self.max_attempts = max_attempts
         self.client = client or httpx.Client(timeout=15, follow_redirects=False)
 
-    def drain(self, store, now=None):
+    def drain(self, store, now=None, stop=None):
         now = time.time() if now is None else now
+        deadline = time.monotonic() + 30
         sent = 0
         for row in store.due(now):
+            if time.monotonic() >= deadline or (stop and stop.is_set()):
+                break
             body = row["payload"].encode()
             timestamp = str(int(time.time()))
             digest = hmac.new(

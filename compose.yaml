@@ -1,0 +1,17 @@
+services:
+  storyhook:
+    build: .
+    # Match the owner of ./data on the host. Set these values in .env.
+    user: "${STORYHOOK_UID:-1000}:${STORYHOOK_GID:-1000}"
+    volumes:
+      - ./data:/data
+    environment:
+      STORYHOOK_WEBHOOK_URL: ${STORYHOOK_WEBHOOK_URL:-}
+      STORYHOOK_WEBHOOK_SECRET: ${STORYHOOK_WEBHOOK_SECRET:-}
+      STORYHOOK_WEBHOOK_TOKEN: ${STORYHOOK_WEBHOOK_TOKEN:-}
+      STORYHOOK_PROXY: ${STORYHOOK_PROXY:-}
+    command: ["run", "zero2sudo", "--quiet", "--download-media"]
+    init: true
+    stop_grace_period: 90s
+    # Auth failures require manual intervention; avoid restart/login loops.
+    restart: "no"

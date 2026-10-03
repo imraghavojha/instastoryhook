@@ -62,7 +62,7 @@ def run(
     while not stop.is_set():
         now = time.time()
         if webhook:
-            sent = webhook.drain(store)
+            sent = webhook.drain(store, stop=stop)
             if sent:
                 report("webhooks_delivered", count=sent)
         if now >= next_poll:
@@ -95,7 +95,7 @@ def run(
             store.health(health)
             report("health", **health)
             if webhook:
-                webhook.drain(store)
+                webhook.drain(store, stop=stop)
             if once:
                 return exit_code
         elif once:

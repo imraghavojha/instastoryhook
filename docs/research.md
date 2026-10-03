@@ -9,7 +9,7 @@ uninterrupted access to Instagram.
 | Approach | Evidence | Decision |
 | --- | --- | --- |
 | Meta Instagram API | [Meta's official collection](https://www.postman.com/meta/instagram/collection/6yqw8pt/instagram-api) covers authorized professional accounts and limited discovery. It is not a general public-account story feed. | Does not cover this project's arbitrary-account requirement. |
-| Instagrapi | [Current source](https://github.com/subzeroid/instagrapi), saved sessions, mobile story endpoint, and link-sticker extraction. Version 3.0.18 installed for evaluation. | Leading candidate, subject to live validation and design review. |
+| Instagrapi | [Current source](https://github.com/subzeroid/instagrapi), saved sessions, mobile story endpoint, and link-sticker extraction. Version 3.0.18 installed for evaluation. | Selected after live validation and design review. |
 | Instaloader | [Story API](https://instaloader.github.io/module/instaloader.html) requires login. [Issue 2720](https://github.com/instaloader/instaloader/issues/2720) reports a null story-tray failure; [issue 2651](https://github.com/instaloader/instaloader/issues/2651) reports throttling. | Useful downloader, but does not remove session or endpoint fragility. |
 | Other private API libraries | [ping/instagram_private_api](https://github.com/ping/instagram_private_api) and [dilame/instagram-private-api](https://github.com/dilame/instagram-private-api) expose unofficial APIs too. | No demonstrated reliability advantage over the actively maintained Python candidate. |
 | Browser automation | Can view stories using an existing login. | Useful for verification. A browser process and UI selectors add deployment and maintenance costs to the worker. |
@@ -42,4 +42,34 @@ stickers. No password was requested and no story was posted or messaged.
 The browser viewer itself may mark viewed stories as seen. The collector does
 not call a seen endpoint. Credentials and captured content stay outside Git.
 
-Design review and final validation are recorded below when completed.
+## Claude Opus 5.5 review and decision
+
+The user-requested review ran through the local T3 Claude provider using
+`claude-opus-5-5`. It was a research/design review, not a live test performed by
+Claude. The review and our response agreed on:
+
+- Instagrapi 3.0.18 for transport, signing and saved device settings. Parse the raw
+  story endpoint ourselves: typed URL models can normalize links and discard
+  unknown fields. No automatic fallback to another API when a request fails.
+- Browser-cookie import is a one-time, best-effort bootstrap. Recommend a
+  dedicated account for long-running use. Never import fresh cookies or generate
+  a new device on every polling cycle. Document network-move/relogin risks.
+- One process, SQLite WAL, a writer lock, and atomic event/outbox insertion.
+  HMAC signs timestamp plus exact request bytes; receivers deduplicate by ID.
+- Bounded webhook retries, dead-letter rows, explicit replay, and cursor-based
+  export. stdout is best-effort. Media downloads are optional and failures do not
+  prevent link capture. OCR/transcription belongs downstream.
+- A public account check, cached IDs, explicit health/error states, and source
+  backoff rather than interpreting errors as no active stories.
+
+One disagreement was resolved: the reviewer initially accepted a missing `reel`
+as empty; we require the key explicitly and accept `reel: null`. Missing keys
+indicate schema drift. The reviewer agreed, conditional on checking an empty
+public account live. Tests cover this distinction.
+
+The reviewer accepted our responses to all five objections: dedicated account
+guidance, import-once behavior, network portability, stdout durability, and
+optional immediate media downloads. We use 0–20% positive polling jitter, rather
+than negative jitter, so the configured minimum is respected.
+
+See [validation](validation.md) for the completed collector's results.
